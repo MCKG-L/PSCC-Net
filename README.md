@@ -69,6 +69,34 @@ Since there is no standard dataset for testing the detection performance, we bui
 The name list of these figures can be found in ```dataset/test/CASIA-D/```.
 
 ___
+## Runtime compatibility
+
+Use Python 3.10 or newer with PyTorch 2.6 or newer and a matching torchvision
+release. Install a CUDA-enabled PyTorch build for GPU execution, then install the
+core dependencies from `requirements.txt`. Dataset generation scripts require
+additional packages depending on the chosen dataset.
+
+The entry points use a single CUDA GPU when available, otherwise CPU. Existing
+weights with a `module.` prefix remain supported; newly saved weights do not
+require DataParallel.
+
+Configure `path`, `sample_dir`, `checkpoint_dir`, and `num_workers` in
+`utils/config.py`. Defaults point inside this project, independent of the shell's
+working directory. Relative overrides are also resolved against the project.
+Set `save_tag=True` to save localization maps in the project's `mask_results/`.
+
+Images are converted to RGB; transparency is composited over white. Masks must
+have the same dimensions as their images, with values in 0/1 or 0/255. The
+original `fake/` and `mask/` directory layout is retained. `crop_size` is
+`[height, width]`, with both dimensions positive multiples of 8. Validation keeps
+original image sizes and handles mixed-size batches without stacking them.
+
+Training automatically resumes the highest numbered epoch in `checkpoint_dir`.
+All three matching network files and the DetectionHead optimizer state must be
+present and compatible. Incomplete or corrupt checkpoints stop training with an
+error instead of silently restarting with mixed parameters. Keep a separate
+checkpoint directory for an independent training run.
+
 ## Testing
 To test the PSCC-Net, simply run ```test.py```. It will probe the images in the ```sample``` folder that contains 6 authentic images and 6 forged images including splicing, copy-move, and removal manipulations.
 

@@ -9,13 +9,14 @@ from __future__ import division
 from __future__ import print_function
 
 from yacs.config import CfgNode as CN
+from utils.paths import PROJECT_ROOT
 
 # high_resoluton_net related params for segmentation
 HRNET = CN()
 HRNET.PRETRAINED_LAYERS = ['*']
 HRNET.STEM_INPLANES = 64
 HRNET.FINAL_CONV_KERNEL = 1
-HRNET.PRETRAINED = 'models/hrnet_w18_small_v2.pth'
+HRNET.PRETRAINED = str(PROJECT_ROOT / 'models' / 'hrnet_w18_small_v2.pth')
 
 HRNET.STAGE1 = CN()
 HRNET.STAGE1.NUM_MODULES = 1

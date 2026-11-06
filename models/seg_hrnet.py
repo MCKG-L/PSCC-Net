@@ -11,8 +11,6 @@ from __future__ import print_function
 import os
 import logging
 
-import numpy as np
-
 import torch
 import torch.nn as nn
 import torch._utils
@@ -300,8 +298,6 @@ class HighResolutionNet(nn.Module):
         self.stage4, pre_stage_channels = self._make_stage(
             self.stage4_cfg, num_channels, multi_scale_output=True)
 
-        last_inp_channels = np.int(np.sum(pre_stage_channels))
-
     def _make_transition_layer(
             self, num_channels_pre_layer, num_channels_cur_layer):
         num_branches_cur = len(num_channels_cur_layer)
@@ -434,7 +430,7 @@ class HighResolutionNet(nn.Module):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
         if os.path.isfile(pretrained):
-            pretrained_dict = torch.load(pretrained)
+            pretrained_dict = torch.load(pretrained, map_location='cpu', weights_only=True)
             print('=> loading HRNet pretrained model {}'.format(pretrained))
             model_dict = self.state_dict()
             pretrained_dict_used = {}

@@ -1,7 +1,11 @@
 from yacs.config import CfgNode as CN
+from utils.paths import PROJECT_ROOT
 
 pscc_args = CN()
-pscc_args.path = '../dataset/'
+pscc_args.path = str(PROJECT_ROOT / 'dataset')
+pscc_args.checkpoint_dir = str(PROJECT_ROOT / 'checkpoint')
+pscc_args.sample_dir = str(PROJECT_ROOT / 'sample')
+pscc_args.num_workers = 4
 pscc_args.num_epochs = 25
 pscc_args.lr_strategy = [2e-4, 1e-4, 5e-5, 2.5e-5, 1.25e-5]
 pscc_args.learning_rate = pscc_args.lr_strategy[0]

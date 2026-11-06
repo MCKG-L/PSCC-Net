@@ -1,7 +1,9 @@
 import os
+from pathlib import Path
 
 import torch
 import torchvision.utils as tv_utils
+from utils.paths import PROJECT_ROOT, image_basename
 
 
 def adjust_learning_rate(optimizer, epoch, lr_strategy, lr_decay_step):
@@ -17,11 +19,9 @@ def save_image(image, image_name, category):
     batch_num = len(images)
 
     for ind in range(batch_num):
-        save_dir = './{}_results/'.format(category)
-        if not os.path.exists(save_dir):
-            os.makedirs(save_dir)
-
-        save_path = './{}_results/{}'.format(category, image_name[ind].split('/')[-1][:-3] + 'png')
+        save_dir = PROJECT_ROOT / '{}_results'.format(category)
+        save_dir.mkdir(parents=True, exist_ok=True)
+        save_path = save_dir / Path(image_basename(image_name[ind])).with_suffix('.png')
         tv_utils.save_image(images[ind], save_path)
 
 

@@ -1,9 +1,12 @@
-import os
+from itertools import chain
+import warnings
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
-from utils.utils import findLastCheckpoint, save_image, adjust_learning_rate
+from utils.utils import save_image, adjust_learning_rate
+from utils.checkpoint import load_model_weights, resume_training
+from utils.paths import PROJECT_ROOT, project_path
 
 from models.seg_hrnet import get_seg_model
 from models.seg_hrnet_config import get_hrnet_cfg
@@ -11,10 +14,9 @@ from models.NLCDetection import NLCDetection
 from models.detection_head import DetectionHead
 from utils.config import get_pscc_args
 from utils.load_tdata import TrainData
-from utils.load_tdata import ValData
+from utils.load_tdata import ValData, validation_collate
 
-device = torch.device('cuda:0')
-device_ids = [0]
+device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 
 def train(args):
@@ -32,7 +34,8 @@ def train(args):
     ClsNet = DetectionHead(args)
 
     # load train data
-    train_data_loader = DataLoader(TrainData(args), batch_size=args['train_bs'], shuffle=True, num_workers=8)
+    train_data_loader = DataLoader(TrainData(args), batch_size=args['train_bs'], shuffle=True,
+                                   num_workers=args.get('num_workers', 4))
 
     FENet = FENet.to(device)
     SegNet = SegNet.to(device)
@@ -41,48 +44,23 @@ def train(args):
     params = list(FENet.parameters()) + list(SegNet.parameters()) + list(ClsNet.parameters())
     optimizer = torch.optim.Adam(params, lr=args['learning_rate'])
 
-    FENet = nn.DataParallel(FENet, device_ids=device_ids)
-    SegNet = nn.DataParallel(SegNet, device_ids=device_ids)
-    ClsNet = nn.DataParallel(ClsNet, device_ids=device_ids)
-
-    FENet_dir = './checkpoint/{}_checkpoint'.format(FENet_name)
-    if not os.path.exists(FENet_dir):
-        os.mkdir(FENet_dir)
-
-    SegNet_dir = './checkpoint/{}_checkpoint'.format(SegNet_name)
-    if not os.path.exists(SegNet_dir):
-        os.mkdir(SegNet_dir)
-
-    ClsNet_dir = './checkpoint/{}_checkpoint'.format(ClsNet_name)
-    if not os.path.exists(ClsNet_dir):
-        os.mkdir(ClsNet_dir)
-
-    # load FENet weight
-    try:
-        FENet_weight_path = '{}/{}.pth'.format(FENet_dir, FENet_name)
-        FENet_state_dict = torch.load(FENet_weight_path, map_location='cuda:0')
-        FENet.load_state_dict(FENet_state_dict)
-        print('{} weight-loading succeeds: {}'.format(FENet_name, FENet_weight_path))
-    except:
-        print('{} weight-loading fails'.format(FENet_name))
-
-    # load SegNet weight
-    try:
-        SegNet_weight_path = '{}/{}.pth'.format(SegNet_dir, SegNet_name)
-        SegNet_state_dict = torch.load(SegNet_weight_path, map_location='cuda:0')
-        SegNet.load_state_dict(SegNet_state_dict)
-        print('{} weight-loading succeeds: {}'.format(SegNet_name, SegNet_weight_path))
-    except:
-        print('{} weight-loading fails'.format(SegNet_name))
-
-    # load ClsNet weight
-    try:
-        ClsNet_weight_path = '{}/{}.pth'.format(ClsNet_dir, ClsNet_name)
-        ClsNet_state_dict = torch.load(ClsNet_weight_path, map_location='cuda:0')
-        ClsNet.load_state_dict(ClsNet_state_dict)
-        print('{} weight-loading succeeds: {}'.format(ClsNet_name, ClsNet_weight_path))
-    except:
-        print('{} weight-loading fails'.format(ClsNet_name))
+    # Keep the original three-file format and accept both prefixed/plain weights.
+    checkpoint_root = project_path(args.get('checkpoint_dir', PROJECT_ROOT / 'checkpoint'))
+    models = {FENet_name: FENet, SegNet_name: SegNet, ClsNet_name: ClsNet}
+    directories = {name: checkpoint_root / f'{name}_checkpoint' for name in models}
+    for directory in directories.values():
+        directory.mkdir(parents=True, exist_ok=True)
+    FENet_dir, SegNet_dir, ClsNet_dir = (directories[name] for name in models)
+    weight_paths = {name: directories[name] / f'{name}.pth' for name in models}
+    if any(path.exists() for path in weight_paths.values()):
+        missing = [str(path) for path in weight_paths.values() if not path.is_file()]
+        if missing:
+            raise FileNotFoundError(f'Incomplete pretrained weights: {missing}')
+        for name, model in models.items():
+            load_model_weights(model, weight_paths[name])
+            print(f'{name} weight-loading succeeds: {weight_paths[name]}')
+    else:
+        warnings.warn('No PSCC-Net pretrained weights found; training starts from initialized weights.')
 
     # validation
     print('length of traindata: {}'.format(len(train_data_loader)))
@@ -99,28 +77,9 @@ def train(args):
 
     BCE_loss_full = nn.BCELoss(reduction='none').to(device)
 
-    initial_epoch = findLastCheckpoint(save_dir=SegNet_dir)
+    initial_epoch = resume_training(models, optimizer, checkpoint_root)
     if initial_epoch > 0:
-        try:
-            FENet_checkpoint = torch.load(
-                '{0}/{1}_{2}.pth'.format(FENet_dir, FENet_name, initial_epoch))
-            FENet.load_state_dict(FENet_checkpoint['model'])
-            print("resuming FENet by loading epoch {}".format(initial_epoch))
-
-            SegNet_checkpoint = torch.load(
-                '{0}/{1}_{2}.pth'.format(SegNet_dir, SegNet_name, initial_epoch))
-            SegNet.load_state_dict(SegNet_checkpoint['model'])
-            print("resuming SegNet by loading epoch {}".format(initial_epoch))
-
-            ClsNet_checkpoint = torch.load(
-                '{0}/{1}_{2}.pth'.format(ClsNet_dir, ClsNet_name, initial_epoch))
-            ClsNet.load_state_dict(ClsNet_checkpoint['model'])
-            optimizer.load_state_dict(ClsNet_checkpoint['optimizer'])
-            print("resuming ClsNet by loading epoch {}".format(initial_epoch))
-        except:
-            print('cannot load checkpoint on epoch {}'.format(initial_epoch))
-            initial_epoch = 0
-            print("resuming by loading epoch {}".format(initial_epoch))
+        print(f'Resuming all networks and optimizer from epoch {initial_epoch}')
 
     for epoch in range(initial_epoch, args['num_epochs']):
 
@@ -255,13 +214,11 @@ def train(args):
 
 
 def validation(FENet, SegNet, ClsNet, args):
-    val_data_loader = DataLoader(ValData(args), batch_size=args['val_bs'], shuffle=False, num_workers=8)
-
-    pred_soft_ncls = []
-    ncls = []
+    val_data_loader = DataLoader(ValData(args), batch_size=args['val_bs'], shuffle=False,
+                               num_workers=args.get('num_workers', 4), collate_fn=validation_collate)
     seg_correct, seg_total, cls_correct, cls_total = [0] * 4
 
-    for batch_id, val_data in enumerate(val_data_loader):
+    for batch_id, val_data in enumerate(chain.from_iterable(val_data_loader)):
 
         image, mask, cls, name = val_data
 
@@ -284,21 +241,18 @@ def validation(FENet, SegNet, ClsNet, args):
             ClsNet.eval()
             pred_logit = ClsNet(feat)
 
-        if pred_mask.shape != mask.shape:
+        if pred_mask.shape[-2:] != mask.shape[-2:]:
             pred_mask = F.interpolate(pred_mask, size=(mask.size(1), mask.size(2)), mode='bilinear', align_corners=True)
 
-        binary_mask1 = torch.zeros_like(pred_mask)
-        binary_mask1[pred_mask > 0.5] = 1
-        binary_mask1[pred_mask <= 0.5] = 0
-
-        seg_correct += (binary_mask1 == mask).sum().item()
-        seg_total += int(torch.ones_like(mask).sum().item())
+        binary_mask1 = pred_mask.squeeze(1) > 0.5
+        if binary_mask1.shape != mask.shape:
+            raise ValueError(f'Prediction/target shapes differ: {binary_mask1.shape} vs {mask.shape}')
+        seg_correct += (binary_mask1 == (mask > 0.5)).sum().item()
+        seg_total += mask.numel()
 
         # ce
         sm = nn.Softmax(dim=1)
         pred_logit = sm(pred_logit)
-        pred_soft_ncls.extend(pred_logit[:, 1])
-        ncls.extend(cls)
 
         _, binary_cls = torch.max(pred_logit, 1)
         cls_correct += (binary_cls == cls).sum().item()
@@ -306,6 +260,8 @@ def validation(FENet, SegNet, ClsNet, args):
 
         if args['save_tag']:
             save_image(pred_mask, name, 'mask')
+    if not seg_total or not cls_total:
+        raise ValueError('Validation produced no samples')
     return (seg_correct / seg_total + cls_correct / cls_total) / 2
 
 
