@@ -127,3 +127,30 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# Ignore local training datasets while retaining the test directory.
+/dataset/*
+!/dataset/test/
+
+# Model artifacts: retain the pretrained weights required by this project.
+*.pth
+*.pt
+*.ckpt
+/checkpoint/**
+!/checkpoint/HRNet_checkpoint/
+!/checkpoint/HRNet_checkpoint/HRNet.pth
+!/checkpoint/NLCDetection_checkpoint/
+!/checkpoint/NLCDetection_checkpoint/NLCDetection.pth
+!/checkpoint/DetectionHead_checkpoint/
+!/checkpoint/DetectionHead_checkpoint/DetectionHead.pth
+!/models/hrnet_w18_small_v2.pth
+
+# Independent training runs, prediction maps, logs, and experiment outputs.
+/checkpoint_*/
+/checkpoints/
+/*_results/
+/outputs/
+/runs/
+/logs/
+/wandb/
+events.out.tfevents.*
